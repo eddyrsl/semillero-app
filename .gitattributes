@@ -1,0 +1,24 @@
+# Normalize line endings across platforms
+* text=auto
+
+# Keep these as LF regardless of platform
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# Binary files (no EOL conversions)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.zip binary
