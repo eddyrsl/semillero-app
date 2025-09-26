@@ -26,12 +26,19 @@ router.get('/google/callback', async (req, res, next) => {
 
     // Optionally set credentials and test userinfo
     oauth2Client.setCredentials(tokens);
-    const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
-    const me = await oauth2.userinfo.get();
+    let email = '';
+    try {
+      const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
+      const me = await oauth2.userinfo.get();
+      email = me?.data?.email || '';
+    } catch (e) {
+      // If identity scopes are not granted, skip userinfo and continue
+      console.warn('userinfo.get() failed, continuing without email:', e?.message || e);
+    }
 
     // Redirect back to frontend with a success message
     const frontend = process.env.FRONTEND_URL || 'http://localhost:5173';
-    return res.redirect(`${frontend}?login=success&user=${encodeURIComponent(me.data.email || '')}`);
+    return res.redirect(`${frontend}?login=success&user=${encodeURIComponent(email)}`);
   } catch (err) {
     next(err);
   }

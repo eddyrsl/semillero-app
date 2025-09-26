@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import StudentsView from './components/StudentsView';
@@ -7,90 +7,241 @@ import AssignmentsView from './components/AssignmentsView';
 import ReportsView from './components/ReportsView';
 import NotificationsView from './components/NotificationsView';
 import { Student, Teacher, Assignment, Submission, DashboardStats, CohorteStats } from './types';
+import { getHealth, listCourses, getSummary, listAggregatedTeachers, listAggregatedStudents, listStudentsProgress, logout } from './api/classroom';
+import Login from './components/Login';
+import ThemeSwitch from './components/ThemeSwitch';
+import {
+  students as seedStudents,
+  teachers as seedTeachers,
+  courses as seedCourses,
+  assignments as seedAssignments,
+  submissions as seedSubmissions,
+  computeDashboardStats,
+  cohortStats as seedCohorteStats,
+} from './data/seed';
 
 function App() {
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
+  const [backendOk, setBackendOk] = useState<boolean>(false);
 
-  // Mock data - En producción esto vendría de la API de Google Classroom
-  const [students] = useState<Student[]>([
-    { id: '1', name: 'Ana García', email: 'ana@example.com', cohort: '2024-A', enrolledCourses: ['math', 'science'] },
-    { id: '2', name: 'Carlos López', email: 'carlos@example.com', cohort: '2024-A', enrolledCourses: ['math', 'history'] },
-    { id: '3', name: 'María Rodríguez', email: 'maria@example.com', cohort: '2024-B', enrolledCourses: ['science', 'art'] },
-    { id: '4', name: 'Juan Pérez', email: 'juan@example.com', cohort: '2024-B', enrolledCourses: ['math', 'science', 'history'] },
-    { id: '5', name: 'Laura Martínez', email: 'laura@example.com', cohort: '2024-C', enrolledCourses: ['art', 'music'] },
-  ]);
+  // Seed data (mock) - reemplazable por datos reales del backend
+  const [students, setStudents] = useState<Student[]>(seedStudents);
+  const [teachers, setTeachers] = useState<Teacher[]>(seedTeachers);
+  const [assignments] = useState<Assignment[]>(seedAssignments);
+  const [submissions] = useState<Submission[]>(seedSubmissions);
 
-  const [teachers] = useState<Teacher[]>([
-    { id: '1', name: 'Prof. Roberto Silva', email: 'roberto@school.com', courses: ['math', 'algebra'] },
-    { id: '2', name: 'Prof. Carmen Vega', email: 'carmen@school.com', courses: ['science', 'biology'] },
-    { id: '3', name: 'Prof. Miguel Torres', email: 'miguel@school.com', courses: ['history', 'geography'] },
-  ]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>(() =>
+    computeDashboardStats(students, teachers, seedCourses, assignments, submissions)
+  );
 
-  const [assignments] = useState<Assignment[]>([
-    {
-      id: '1',
-      title: 'Examen de Álgebra',
-      description: 'Examen sobre ecuaciones lineales y cuadráticas',
-      courseId: 'math',
-      dueDate: new Date('2024-02-15'),
-      maxPoints: 100,
-      createdTime: new Date('2024-01-15'),
-      updatedTime: new Date('2024-01-15')
-    },
-    {
-      id: '2',
-      title: 'Proyecto de Ciencias',
-      description: 'Investigación sobre el sistema solar',
-      courseId: 'science',
-      dueDate: new Date('2024-02-20'),
-      maxPoints: 150,
-      createdTime: new Date('2024-01-10'),
-      updatedTime: new Date('2024-01-10')
-    },
-    {
-      id: '3',
-      title: 'Ensayo de Historia',
-      description: 'Ensayo sobre la revolución industrial',
-      courseId: 'history',
-      dueDate: new Date('2024-02-25'),
-      maxPoints: 80,
-      createdTime: new Date('2024-01-20'),
-      updatedTime: new Date('2024-01-20')
-    }
-  ]);
+  const cohorteStats: CohorteStats[] = seedCohorteStats;
 
-  const [submissions] = useState<Submission[]>([
-    { id: '1', assignmentId: '1', studentId: '1', state: 'TURNED_IN', late: false, submissionHistory: [], assignedGrade: 95 },
-    { id: '2', assignmentId: '1', studentId: '2', state: 'TURNED_IN', late: true, submissionHistory: [], assignedGrade: 78 },
-    { id: '3', assignmentId: '1', studentId: '3', state: 'CREATED', late: false, submissionHistory: [] },
-    { id: '4', assignmentId: '2', studentId: '1', state: 'TURNED_IN', late: false, submissionHistory: [], assignedGrade: 88 },
-    { id: '5', assignmentId: '2', studentId: '4', state: 'TURNED_IN', late: true, submissionHistory: [], assignedGrade: 72 },
-  ]);
+  const [cohorts, setCohorts] = useState<string[]>(
+    Array.from(new Set(seedCourses.map(c => c.cohort))).sort()
+  );
+  const [selectedCohort, setSelectedCohort] = useState<string>('');
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>('');
+  const [studentProgress, setStudentProgress] = useState<Record<string, number>>({});
+  const [studentProgressTotals, setStudentProgressTotals] = useState<Record<string, { total: number; entregado: number; atrasado: number; faltante: number; pendiente: number; reentrega: number }>>({});
 
-  const dashboardStats: DashboardStats = {
-    totalStudents: students.length,
-    totalTeachers: teachers.length,
-    totalCourses: 6,
-    totalAssignments: assignments.length,
-    onTimeSubmissions: submissions.filter(s => s.state === 'TURNED_IN' && !s.late).length,
-    lateSubmissions: submissions.filter(s => s.late).length,
-    pendingSubmissions: submissions.filter(s => s.state === 'CREATED').length
-  };
+  const handleCohortChange = (c: string) => setSelectedCohort(c);
+  const handleTeacherChange = (t: string) => setSelectedTeacherId(t);
 
-  const cohorteStats: CohorteStats[] = [
-    { cohort: '2024-A', onTimePercentage: 85, totalAssignments: 12, studentsCount: 2 },
-    { cohort: '2024-B', onTimePercentage: 72, totalAssignments: 12, studentsCount: 2 },
-    { cohort: '2024-C', onTimePercentage: 90, totalAssignments: 8, studentsCount: 1 },
-  ];
+  useEffect(() => {
+    // Quick health check and auth probe (no bloquea el uso de seeds)
+    (async () => {
+      try {
+        const health = await getHealth();
+        setBackendOk(Boolean(health?.ok));
+      } catch {
+        setBackendOk(false);
+      }
+      try {
+        await listCourses(1);
+        setIsAuthed(true);
+      } catch (err: any) {
+        if (err?.response?.status === 401) setIsAuthed(false);
+        else setIsAuthed(null);
+      }
+    })();
+  }, []);
 
-  const cohorts = ['2024-A', '2024-B', '2024-C'];
+  useEffect(() => {
+    // Si hay backend y auth, intenta reemplazar stats; si falla o no aplica, usa seeds filtrados
+    (async () => {
+      const filteredCourses = seedCourses.filter(c => (selectedCohort ? c.cohort === selectedCohort : true));
+      const courseIds = new Set(filteredCourses.map(c => c.id));
+
+      const filteredTeachers = seedTeachers.filter(t => {
+        const teachesSelected = t.courses.some(cid => courseIds.has(cid));
+        return selectedTeacherId ? t.id === selectedTeacherId : teachesSelected || !selectedCohort;
+      });
+      const teacherIds = new Set(filteredTeachers.map(t => t.id));
+
+      const filteredStudents = seedStudents.filter(s => (selectedCohort ? s.cohort === selectedCohort : true));
+
+      const filteredAssignments = seedAssignments.filter(a => courseIds.has(a.courseId));
+      const filteredSubmissions = seedSubmissions.filter(sub => filteredAssignments.some(a => a.id === sub.assignmentId));
+
+      // Fallback local
+      setDashboardStats(
+        computeDashboardStats(filteredStudents, filteredTeachers, filteredCourses, filteredAssignments, filteredSubmissions)
+      );
+
+      if (backendOk && isAuthed) {
+        try {
+          const params: any = {};
+          if (selectedCohort) params.cohort = selectedCohort;
+          if (selectedTeacherId) params.teacherId = selectedTeacherId;
+          const summary = await getSummary(Object.keys(params).length ? params : undefined);
+          if (summary) {
+            const hasData =
+              (Number(summary.totalStudents) || 0) +
+              (Number(summary.totalTeachers) || 0) +
+              (Number(summary.totalCourses) || 0) +
+              (Number(summary.totalAssignments) || 0) +
+              (Number(summary.onTimeSubmissions) || 0) +
+              (Number(summary.lateSubmissions) || 0) +
+              (Number(summary.pendingSubmissions) || 0) > 0;
+            if (hasData) setDashboardStats(summary);
+          }
+        } catch {
+          // mantener fallback local
+        }
+      }
+    })();
+  }, [backendOk, isAuthed, selectedCohort, selectedTeacherId]);
+
+  // Load cohorts (from courses), teachers and filtered students from backend when authenticated
+  useEffect(() => {
+    (async () => {
+      if (!backendOk || !isAuthed) return;
+      try {
+        // Derive cohorts from courses list
+        const { courses } = await listCourses();
+        const deriveCohort = (course: any) => course?.section || course?.name || 'General';
+        const unique = Array.from(new Set((courses || []).map((c: any) => String(deriveCohort(c)))));
+        unique.sort();
+        setCohorts(unique);
+      } catch {}
+
+      try {
+        const { teachers: aggTeachers } = await listAggregatedTeachers(selectedCohort ? { cohort: selectedCohort } : undefined);
+        const mapped: Teacher[] = (aggTeachers || []).map((t: any) => ({
+          id: String(t.id),
+          name: t.name || t.email || 'Profesor',
+          email: t.email || '',
+          courses: t.courses || [],
+        }));
+        if ((mapped?.length || 0) > 0) {
+          setTeachers(mapped);
+          if (selectedTeacherId && !mapped.find(t => t.id === selectedTeacherId)) {
+            setSelectedTeacherId('');
+          }
+        } else {
+          // Fallback a seeds filtrados por cohorte
+          const filteredSeedTeachers = seedTeachers.filter(t => {
+            if (!selectedCohort) return true;
+            const teachesCohort = seedCourses
+              .filter(c => c.cohort === selectedCohort)
+              .some(c => t.courses.includes(c.id));
+            return teachesCohort;
+          });
+          setTeachers(filteredSeedTeachers);
+        }
+      } catch {
+        const filteredSeedTeachers = seedTeachers.filter(t => {
+          if (!selectedCohort) return true;
+          const teachesCohort = seedCourses
+            .filter(c => c.cohort === selectedCohort)
+            .some(c => t.courses.includes(c.id));
+          return teachesCohort;
+        });
+        setTeachers(filteredSeedTeachers);
+      }
+
+      try {
+        const params: any = {};
+        if (selectedCohort) params.cohort = selectedCohort;
+        if (selectedTeacherId) params.teacherId = selectedTeacherId;
+        const { students: aggStudents } = await listAggregatedStudents(Object.keys(params).length ? params : undefined);
+        const mapped: Student[] = (aggStudents || []).map((s: any) => ({
+          id: String(s.id),
+          name: s.name || s.email || 'Estudiante',
+          email: s.email || '',
+          cohort: s.cohort || 'General',
+          enrolledCourses: s.enrolledCourses || [],
+        }));
+        if ((mapped?.length || 0) > 0) {
+          setStudents(mapped);
+        } else {
+          // Fallback a seeds filtrados por cohorte/profesor
+          const filteredSeedStudents = seedStudents.filter(s => (selectedCohort ? s.cohort === selectedCohort : true)).filter(s => {
+            if (!selectedTeacherId) return true;
+            // estudiante pertenece a algun curso del profesor seleccionado
+            const teacher = seedTeachers.find(t => t.id === selectedTeacherId);
+            if (!teacher) return true;
+            return s.enrolledCourses.some(cid => teacher.courses.includes(cid));
+          });
+          setStudents(filteredSeedStudents);
+        }
+        // Fetch progress map
+        try {
+          const { students: progressList } = await listStudentsProgress(Object.keys(params).length ? params : undefined);
+          const prog: Record<string, number> = {};
+          const totals: Record<string, { total: number; entregado: number; atrasado: number; faltante: number; pendiente: number; reentrega: number }> = {};
+          (progressList || []).forEach((p: any) => {
+            const id = String(p.id);
+            prog[id] = Number(p.onTimePercentage) || 0;
+            if (p.totals) {
+              totals[id] = {
+                total: Number(p.totals.total) || 0,
+                entregado: Number(p.totals.entregado) || 0,
+                atrasado: Number(p.totals.atrasado) || 0,
+                faltante: Number(p.totals.faltante) || 0,
+                pendiente: Number(p.totals.pendiente) || 0,
+                reentrega: Number(p.totals.reentrega) || 0,
+              };
+            }
+          });
+          setStudentProgress(prog);
+          setStudentProgressTotals(totals);
+        } catch {
+          setStudentProgress({});
+          setStudentProgressTotals({});
+        }
+      } catch {
+        // fallback a seeds si falla llamada
+        const filteredSeedStudents = seedStudents.filter(s => (selectedCohort ? s.cohort === selectedCohort : true)).filter(s => {
+          if (!selectedTeacherId) return true;
+          const teacher = seedTeachers.find(t => t.id === selectedTeacherId);
+          if (!teacher) return true;
+          return s.enrolledCourses.some(cid => teacher.courses.includes(cid));
+        });
+        setStudents(filteredSeedStudents);
+      }
+    })();
+  }, [backendOk, isAuthed, selectedCohort, selectedTeacherId]);
 
   const renderActiveSection = () => {
     switch (activeSection) {
       case 'dashboard':
         return <Dashboard stats={dashboardStats} />;
       case 'students':
-        return <StudentsView students={students} cohorts={cohorts} />;
+        return (
+          <StudentsView
+            students={students}
+            cohorts={cohorts}
+            selectedCohort={selectedCohort}
+            onCohortChange={handleCohortChange}
+            teachers={teachers}
+            selectedTeacherId={selectedTeacherId}
+            onTeacherChange={handleTeacherChange}
+            progressMap={studentProgress}
+            progressTotals={studentProgressTotals}
+          />
+        );
       case 'teachers':
         return <TeachersView teachers={teachers} />;
       case 'assignments':
@@ -101,9 +252,49 @@ function App() {
         return <NotificationsView />;
       case 'settings':
         return (
-          <div className="text-center py-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Configuración</h2>
-            <p className="text-gray-600">Panel de configuración en desarrollo</p>
+          <div className="max-w-3xl mx-auto py-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6">Configuración</h2>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Cuenta</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Cierra tu sesión actual y elimina las credenciales almacenadas temporalmente en el servidor.
+              </p>
+              <button
+                onClick={async () => {
+                  try {
+                    await logout();
+                  } finally {
+                    setIsAuthed(false);
+                    setStudents([]);
+                    setTeachers([]);
+                    setStudentProgress({});
+                    setStudentProgressTotals({});
+                    setSelectedCohort('');
+                    setSelectedTeacherId('');
+                    setDashboardStats(prev => ({
+                      ...prev,
+                      totalStudents: 0,
+                      totalTeachers: 0,
+                      totalCourses: 0,
+                      totalAssignments: 0,
+                      onTimeSubmissions: 0,
+                      lateSubmissions: 0,
+                      pendingSubmissions: 0,
+                    }));
+                    setActiveSection('dashboard');
+                  }
+                }}
+                className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700"
+              >
+                Cerrar sesión
+              </button>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-xl p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Preferencias</h3>
+              <p className="text-sm text-gray-600">Próximamente: idioma, tema visual, periodo por defecto, etc.</p>
+            </div>
           </div>
         );
       default:
@@ -112,12 +303,26 @@ function App() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
+    // If not authenticated, show a clean login screen without sidebar or filters
+    !isAuthed ? (
+      <div className="min-h-screen bg-gray-50 dark:bg-slate-900 p-8">
+        <div className="max-w-5xl mx-auto mb-6 flex justify-end">
+          <ThemeSwitch />
+        </div>
+        <Login buttonVariant="primary" />
+      </div>
+    ) : (
+    <div className="flex min-h-screen bg-gray-50 dark:bg-slate-900">
       <Sidebar activeSection={activeSection} onSectionChange={setActiveSection} />
       <main className="flex-1 p-8">
+        <div className="mb-6 flex justify-end">
+          <ThemeSwitch />
+        </div>
+        
         {renderActiveSection()}
       </main>
     </div>
+    )
   );
 }
 

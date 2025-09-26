@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import authRouter from './routes/auth.js';
 import classroomRouter from './routes/classroom.js';
+import notificationsRouter from './routes/notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +26,14 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/auth', authRouter);
 app.use('/api/classroom', classroomRouter);
+app.use('/api/notifications', notificationsRouter);
+
+// Alias to support Google Cloud redirect URIs like http://localhost:5001/oauth/callback
+// It forwards all query params (e.g., code, scope) to our actual auth callback
+app.get('/oauth/callback', (req, res) => {
+  const query = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
+  res.redirect(`/auth/google/callback${query}`);
+});
 
 app.use((err, _req, res, _next) => {
   console.error('Unhandled error:', err);
